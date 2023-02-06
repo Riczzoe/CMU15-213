@@ -143,7 +143,7 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+    return ~(~(x & ~y) & ~(~x & y));
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -152,9 +152,7 @@ int bitXor(int x, int y) {
  *   Rating: 1
  */
 int tmin(void) {
-
-  return 2;
-
+    return 1 << 31;
 }
 //2
 /*
@@ -165,7 +163,7 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+    return !(~(x + 1) ^ x) & !!(~x);
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -176,7 +174,13 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+    // get long allOdd1 = 0xaaaa aaaa aaaa aaaa;
+
+    // 00000000 00...00 00000000 10101010
+    // 00000000 00...00 10101010 00000000;
+    long last2Byte = 0xaa | (0xaa << 8);
+    long allOdd = last2Byte | (last2Byte << 16);
+    return !!!((x & allOdd) ^ allOdd);
 }
 /* 
  * negate - return -x 
@@ -186,7 +190,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x + 1;
 }
 //3
 /* 
@@ -199,7 +203,11 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+    // x - 39 <= 0;
+    // ((x + (~(long)0x39)) >> 31) == -1
+    //
+    /* long res = ((x + (~(long)0x39)) >> 31) & (!(x + (~(long)0x2f)) >> 31); */
+    return !!(((x + ~0x39) >> 31) & (!((x + ~0x2f) >> 31)));
 }
 /* 
  * conditional - same as x ? y : z 
@@ -209,7 +217,10 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+    // if x == 0:   bias == 1111...1111
+    // if x != 0:   bias == 0000...0000
+    int bias = (!x << 31) >> 31;
+    return (y & ~bias) | (z & bias);;
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -219,7 +230,8 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+
+    return 1;
 }
 //4
 /* 
@@ -231,7 +243,13 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+    // T(x): two's complement of x
+    // if x != 0: x + T(x) < 1; (x + T(x)) >> 1 = 111...111
+    //            111...111 + 1 = 0;
+    // 
+    // if x == 0: x + T(x) = 0; (x + T(x)) >> 1 = 0;
+    //            0 + 1 = 1;
+    return ((x | (~x + 1)) >> 31) + 1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -246,7 +264,124 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+    /*
+     * Thanks for Brian Magnuson, from https://stackoverflow.com/a/14676540/18553530
+     *
+     * We can think that all integers have one thing in common, some bits on the
+     * left are all the same value (1 or 0), 
+     * like(-2):    1111 1111 1111 1111 1111 1111 1111 1110
+     *     (14):    0000 0000 0000 0000 0000 0000 0000 1110
+     *
+     * for(-2), We only need one number to hold the last binary digit: 0, The 
+     * remaining digits are all 1.
+     * 
+     * for(14), we only need four number to hold the last four binary digit: 1110,
+     * The remaining digits are all 0;
+     *
+     * But for uniform processing, we need to turn negative numbers into positive numbers.
+     *
+     * we assume that x is: 0001 1000 0111 1011 0101 1100 0001 0000
+     */
+
+    /* 
+     * (x & ~sign) | (~x & sign): Negative numbers can be all inverted, 
+     * while positive numbers remain unchanged.
+     *
+     * if x >= 0:  x >> 31 --> 000...000, sign = 000...000, x & ~sign = x, ~x & sign = 0;
+     *
+     * if x <  0:  x >> 31 --> 111...111, sign = 111...111, x & ~sign = 0, ~x & sign = ~x;
+     */
+    int sign = (x >> 31);
+    x = (x & ~sign) | (~x & sign);
+
+
+    /*
+     * Notes: The numbers in parentheses are the numbers of x itself.
+     * x:              (0001 1000 0111 1011  0101 1100 0001 0000)
+     * x >> 16:         0000 0000 0000 0000 (0001 1000 0111 1011) 
+     * 
+     * We can find that if the result is greater than 0 after x >> 16, 
+     * it means that x requires at least 16 bits to represent.
+     *
+     * But it is not enough to know that x requires at least 16 bits to represent, 
+     * we need to know how many bits. So you can record 16 to prepare for how many 
+     * bits are most needed later.
+     * 
+     * The value obtained by shifting x to the right by 16 bits will get 
+     * 1 or 0 after two inversions, and after continuing to shift left by 4 bits, 
+     * it will get 16 or 0, which is exactly the value we need.
+     */
+    int half = !!(x >> 16) << 4;
+    int res = half;
+
+    /*
+     * It is now known that x requires at least 16 bits to represent, 
+     * and it has been recorded with the variable res.
+     *
+     * Go ahead and consider how many bits are needed to represent the leftmost 16 bits of x.
+     * x >> res(16):    0000 0000 0000 0000 (0001 1000  0111 1011)
+     * x >> res >> 8:   0000 0000 0000 0000  0000 0000 (0001 1000) 
+     *
+     * The shifted result is still greater than 0, so x requires at least res + 8 = 24 bits to represent.
+     */
+    int quater = !!(x >> res >> 8) << 3;
+    res += quater;
+
+    /*
+     * x >> res(24):    0000 0000 0000 0000 0000 0000 (0001 1000)
+     * x >> res >> 4:   0000 0000 0000 0000 0000 0000  0000 (0001) 
+     *
+     * The shifted result is still greater than 0, so x requires at least res + 4 = 28 bits to represent.
+     */
+    int oneEight = !!(x >> res >> 4) << 2;
+    res += oneEight;
+
+    /* step(a):
+     *
+     * x >> res(28):    0000 0000 0000 0000 0000 0000  0000 (0001)
+     * x >> res >> 2:   0000 0000 0000 0000 0000 0000  0000 00(00)
+     *
+     * The result of the shift is finally equal to 0, but we should not terminate the calculation,
+     * because we stand in the perspective of God, we know that the result is 0 at this time,
+     * but the computer does not know.
+     *
+     * We continue with the remaining 4 bits numbers.
+     *
+     * Please remember that at this time res = 28.
+     */
+    int oneSixteenth = !!(x >> res >> 2) << 1;
+    res += oneSixteenth;
+
+    /* step(b):
+     *
+     * x >> res(28):    0000 0000 0000 0000 0000 0000  0000 (0001)
+     * x >> res >> 1:   0000 0000 0000 0000 0000 0000  0000 0(000)
+     *
+     * The result of the shift is still 0.
+     *
+     * This time res = 28;
+     */
+    int oneThirty_Two = !!(x >> res >> 1);
+    res += oneThirty_Two;
+
+    /* step(c):
+     *
+     * x >> res(28):    0000 0000 0000 0000 0000 0000  0000 (0001)  --> 1
+     */
+    res += x >> res;
+
+    /*
+     * At this time, the number of bits in res can represent all numbers of x except the sign,
+     * so add 1 to res to represent x.
+     */
+    return res + 1;
+
+    /* remind:
+     *
+     * Before (step a), we only have 4 bits left to judge.
+     * After three steps of a, b, c, We can find out exactly how many 
+     * bits are needed to represent those 4 bits.
+     */
 }
 //float
 /* 
