@@ -291,7 +291,8 @@ int howManyBits(int x) {
      *
      * if x <  0:  x >> 31 --> 111...111, sign = 111...111, x & ~sign = 0, ~x & sign = ~x;
      */
-    int sign = (x >> 31);
+    int sign, half, quater, oneEight, oneSixteenth, oneThirty_Two, res;
+    sign = (x >> 31);
     x = (x & ~sign) | (~x & sign);
 
 
@@ -311,8 +312,8 @@ int howManyBits(int x) {
      * 1 or 0 after two inversions, and after continuing to shift left by 4 bits, 
      * it will get 16 or 0, which is exactly the value we need.
      */
-    int half = !!(x >> 16) << 4;
-    int res = half;
+    half = !!(x >> 16) << 4;
+    res = half;
 
     /*
      * It is now known that x requires at least 16 bits to represent, 
@@ -324,7 +325,7 @@ int howManyBits(int x) {
      *
      * The shifted result is still greater than 0, so x requires at least res + 8 = 24 bits to represent.
      */
-    int quater = !!(x >> res >> 8) << 3;
+    quater = !!(x >> res >> 8) << 3;
     res += quater;
 
     /*
@@ -333,7 +334,7 @@ int howManyBits(int x) {
      *
      * The shifted result is still greater than 0, so x requires at least res + 4 = 28 bits to represent.
      */
-    int oneEight = !!(x >> res >> 4) << 2;
+    oneEight = !!(x >> res >> 4) << 2;
     res += oneEight;
 
     /* step(a):
@@ -349,7 +350,7 @@ int howManyBits(int x) {
      *
      * Please remember that at this time res = 28.
      */
-    int oneSixteenth = !!(x >> res >> 2) << 1;
+    oneSixteenth = !!(x >> res >> 2) << 1;
     res += oneSixteenth;
 
     /* step(b):
@@ -361,7 +362,7 @@ int howManyBits(int x) {
      *
      * This time res = 28;
      */
-    int oneThirty_Two = !!(x >> res >> 1);
+    oneThirty_Two = !!(x >> res >> 1);
     res += oneThirty_Two;
 
     /* step(c):
@@ -396,7 +397,34 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+    /*
+     * Consider three cases:
+     *
+     * 1. exp == 0000 0000
+     *      for frac of uf: frac * 2 = frac >> 2
+     *      so uf * 2 = sign | (uf << 2)
+     * 2. exp == 1111 1111
+     *      uf = NaN or infi, so not deal with
+     * 3. exp != 0000 0000 && exp != 1111 1111
+     *      just exp + 1
+     */
+    int signBias = 1 << 31;
+    int sign = uf & signBias;
+
+    int expBias = (~(~0 << 8)) << 23;
+    int exp = uf & expBias;
+
+    if (!exp) {                             // exp == 0
+        uf = sign | (uf << 1);
+    } else if (exp != expBias) {         // exp != 0 && exp != 1111 1111
+        uf = uf + (1 << 23);
+    }
+    /*
+     * if exp == 1111 1111
+     *      do nothing 
+     *      just return it;
+     */
+    return uf;
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -411,7 +439,29 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+    int bias = 127;
+    int len_frac = 23;
+
+    int exp = (uf >> len_frac) & 0xFF;
+    int frac = (~(~0 << len_frac)) & uf;
+
+    if (exp == 0xff || exp > bias + 31) {
+        return 0x80000000;
+    }
+
+    if (exp >= bias) {
+        int power = exp - bias;
+        if (power <= len_frac) {
+            frac = frac >> (len_frac - power);
+        } else {
+            frac = frac << (power - len_frac);
+        }
+        
+        frac = (1 << power) | frac;
+        return uf >> 31 ? -frac : frac;
+    } 
+
+    return 0;
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -427,5 +477,17 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+    int bias = 127;
+    if (x < -150) {
+        return 0;
+    }
+
+    if (x < -127) {
+        return 1 << (x + 127);
+    }
+
+    if (x <= 128) {
+        return (x + 127) << 23;
+    }
+    return 0x7f800000;
 }
