@@ -18,16 +18,104 @@ static int evictionCount = 0;   /* The number of evictions */
 
 static int verbose = 0;         /* The verbose flag */
 
+/* define the data structure of cache */
+typedef struct line_tag {
+    int vaild:1;
+    long tag;
+} line_t;
+
+typedef struct set_tag {
+    line_t *lines;
+} set_t;
+
+typedef struct cache_tag {
+    set_t *sets;
+} cache_t;
+
 static void printUsage(char *argv[]);
 static void checkArgsSetInitArg(int argc, char *argv[]);
+
+static cache_t *cache;
+static void freeCache();
+static void initCache();
 
 int main(int argc, char *argv[])
 {
     checkArgsSetInitArg(argc, argv);
+    initCache();
+    freeCache();
     printSummary(hitCount, missCount, evictionCount);
     return 0;
 }
 
+/**
+ * initCache - init the cache.
+ */
+static void initCache() {
+    printf("setsNum: %d, linesNum: %d, blockSize: %d\n", 
+            setsNum, linesNum, blockSize);
+    cache = (cache_t *) malloc(sizeof(cache_t));
+    if (!cache) {
+        printf("No enough memory!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    cache->sets = (set_t *) malloc(sizeof(set_t) * setsNum);
+    if (!cache->sets) {
+        printf("No enough memory!\n");
+        free(cache);
+        exit(EXIT_FAILURE);
+    }
+
+    int i;
+    for (i = 0; i < setsNum; i++) {
+        line_t *lines = (line_t *) malloc(sizeof(line_t) * linesNum);
+        if (!lines) {
+            printf("No enough memory!\n");
+            freeCache();
+            exit(EXIT_FAILURE);
+        }
+
+        int j;
+        for (j = 0; j < linesNum; j++) {
+            line_t line = lines[j];
+            line.vaild = 0;
+        }
+
+        cache->sets[i].lines = lines;
+    }
+}
+
+/**
+ * freeCache - free the malloc memory of cache.
+ */
+static void freeCache() {
+    if (!cache) {
+        return;
+    }
+    if (!cache->sets) {
+        free(cache);
+        return;
+    }
+
+    int i;
+    for (i = 0; i < setsNum; i++) {
+        set_t set = cache->sets[i];
+        if (set.lines) {
+            free(set.lines);
+        }
+    }
+    free(cache->sets);
+    free(cache);
+}
+
+/**
+ * checkArgsSetInitArg - check the args are valid or not.
+ *                       if valid, init the args.
+ *                       if not valid, print the usage and exit.
+ * @argc: the number of args.
+ * @argv: the args.
+ */
 static void checkArgsSetInitArg(int argc, char *argv[]) {
     int opt;
     while ((opt = getopt(argc, argv, "hvs:E:b:t:")) != -1) {
@@ -50,11 +138,15 @@ static void checkArgsSetInitArg(int argc, char *argv[]) {
             case 't':
                 break;
             default:
+                /* invalid args */
                 printUsage(argv);
                 exit(EXIT_FAILURE);
         }
     }
 
+    /* if the compulsory args are not set, or set to 0, 
+     * print the usage and exit. 
+     */
     if (setsNum <= 0 || linesNum <= 0 || blockSize <= 0) {
         printf("%s: Missing required command line argument\n", argv[0]);
         printUsage(argv);
@@ -62,6 +154,10 @@ static void checkArgsSetInitArg(int argc, char *argv[]) {
     }
 }
 
+/**
+ * printUasge - print the usage of this program.
+ * @argv: the argvs.
+ */
 static void printUsage(char *argv[]) {
     printf("Usage: %s [-hv] -s <num> -E <num> -b <num> -t <file>\n"
            "Options:\n"
