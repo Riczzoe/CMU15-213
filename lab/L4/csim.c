@@ -50,15 +50,7 @@ static void handleLoad(const unsigned long *addr);
 static void handleStore(const unsigned long *addr);
 static int checkHit(const set_t *set, const unsigned long tag);
 static int needEviction(const set_t *set, const unsigned long tag);
-static void printCache() {
-    int i, j;
-    for (i = 1; i <= 1; i++) {
-        for (j = 0; j < linesNum; j++) {
-            printf("\n[valid: %d, tag: %ld, accessTime: %ld]\n ", cache->sets[i].lines[j].valid, cache->sets[i].lines[j].tag, cache->sets[i].lines[j].accessTime);
-        }
-        printf("\n");
-    }
-}
+
 
 int main(int argc, char *argv[])
 {
@@ -70,6 +62,13 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+/* simulateCache - simulate the cache.
+ *     Read the trace file line by line.
+ *     If the operation is 'L', then call handleLoad function.
+ *     If the operation is 'S', then call handleStore function.
+ *     If the operation is 'M', then call handleLoad and handleStore function.
+ *     If the operation is 'I', then ignore it.
+ */
 static void simulateCache() {
     FILE *traceFile = getTraceFile();
     char line[MAXLINE];
@@ -114,6 +113,11 @@ static FILE *getTraceFile() {
     return fp;
 }
 
+/* handleLoad - handle the load operation
+ *    If hit, then hitCount++.
+ *    If miss, then missCount++.
+ *    If need eviction, then evictionCount++.
+ */
 static void handleLoad(const unsigned long *addr) {
     int setIndex = *addr / blockSize % setsNum;
     unsigned long tag = *addr / blockSize / setsNum;
@@ -137,6 +141,10 @@ static void handleLoad(const unsigned long *addr) {
     }
 }
 
+/* needEviction - check whether the cache need eviction.
+ *     If all line of the set is valid and miss, then need eviction.
+ *       return 1, otherwise return 0.
+ */
 static int needEviction(const set_t *set, const unsigned long tag) {
     int i;
     int min_index = 0;
@@ -161,6 +169,9 @@ static int needEviction(const set_t *set, const unsigned long tag) {
     return 1;
 }
 
+/* checkHit - check whether the cache hit or not.
+ *     If hit, return 1, otherwise return 0.
+ */
 static int checkHit(const set_t *set, const unsigned long tag) {
     int i;
     for (i = 0; i < linesNum; i++) {
@@ -175,8 +186,11 @@ static int checkHit(const set_t *set, const unsigned long tag) {
 
 
 
+/* handleStore - handle the store operation 
+ *     In this lab, the store operation is the same as the load 
+ *     operation. So we just call the handleLoad function.
+ */
 static void handleStore(const unsigned long *addr) {
-    /* printf("%ld\n ", *addr); */
     handleLoad(addr);
 }
 
