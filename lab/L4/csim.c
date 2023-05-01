@@ -1,6 +1,8 @@
+#include <time.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* more info about this error see:
  * https://stackoverflow.com/questions/22575940/getopt-not-included-implicit-declaration-of-function-getopt */
@@ -8,10 +10,13 @@
 #include <getopt.h>        
 #include "cachelab.h"
 
+#define MAXLINE 20
 
 static int setsNum = 0;         /* The number of sets */
 static int linesNum = 0;        /* The number of lines per set */
 static int blockSize = 0;       /* The number of bytes per block */
+static char *fileName = NULL;   /* The name of the valgrind trace to replay */
+
 static int hitCount = 0;        /* The number of hits */
 static int missCount = 0;       /* The number of misses */
 static int evictionCount = 0;   /* The number of evictions */
@@ -20,8 +25,9 @@ static int verbose = 0;         /* The verbose flag */
 
 /* define the data structure of cache */
 typedef struct line_tag {
-    int vaild:1;
-    long tag;
+    int valid;
+    unsigned long tag;
+    clock_t accessTime;
 } line_t;
 
 typedef struct set_tag {
@@ -38,22 +44,146 @@ static void checkArgsSetInitArg(int argc, char *argv[]);
 static cache_t *cache;
 static void freeCache();
 static void initCache();
+static FILE *getTraceFile();
+static void simulateCache();
+static void handleLoad(const unsigned long *addr);
+static void handleStore(const unsigned long *addr);
+static int checkHit(const set_t *set, const unsigned long tag);
+static int needEviction(const set_t *set, const unsigned long tag);
+static void printCache() {
+    int i, j;
+    for (i = 1; i <= 1; i++) {
+        for (j = 0; j < linesNum; j++) {
+            printf("\n[valid: %d, tag: %ld, accessTime: %ld]\n ", cache->sets[i].lines[j].valid, cache->sets[i].lines[j].tag, cache->sets[i].lines[j].accessTime);
+        }
+        printf("\n");
+    }
+}
 
 int main(int argc, char *argv[])
 {
     checkArgsSetInitArg(argc, argv);
     initCache();
+    simulateCache();
     freeCache();
     printSummary(hitCount, missCount, evictionCount);
     return 0;
+}
+
+static void simulateCache() {
+    FILE *traceFile = getTraceFile();
+    char line[MAXLINE];
+
+    char op;
+    unsigned long addr;
+    int size;
+    while (fgets(line, MAXLINE, traceFile) != NULL) {
+        sscanf(line, " %c %lx,%d", &op, &addr, &size);
+        line[strlen(line) - 1] = ' ';
+        if (verbose && line[0] != 'I') {
+            printf("%s", line + 1);
+        }
+        switch (op) {
+            case 'L':
+                handleLoad(&addr);
+                break;
+            case 'S':
+                handleStore(&addr);
+                break;
+            case 'M':
+                handleLoad(&addr);
+                handleStore(&addr);
+                break;
+            default:
+                continue;
+        }
+        if (verbose) {
+            printf("\n");
+            /* printCache(); */
+        }
+    }
+    fclose(traceFile);
+}
+
+static FILE *getTraceFile() {
+    FILE *fp = fopen(fileName, "r");
+    if (!fp) {
+        printf("%s: No such file or directory\n", fileName);
+        exit(EXIT_FAILURE);
+    }
+    return fp;
+}
+
+static void handleLoad(const unsigned long *addr) {
+    int setIndex = *addr / blockSize % setsNum;
+    unsigned long tag = *addr / blockSize / setsNum;
+    set_t *set = &(cache->sets[setIndex]);
+    if (checkHit(set, tag)) {
+        hitCount++;
+        if (verbose) {
+            printf(" hit");
+        }
+    } else {
+        missCount++;
+        if (verbose) {
+            printf(" miss");
+        }
+        if (needEviction(set, tag)) {
+            evictionCount++;
+            if (verbose) {
+                printf(" eviction");
+            }
+        }
+    }
+}
+
+static int needEviction(const set_t *set, const unsigned long tag) {
+    int i;
+    int min_index = 0;
+    for (i = 0; i < linesNum; i++) {
+        line_t *line = &(set->lines[i]);
+        if (!line->valid) {
+            line->valid = 1;
+            line->tag = tag;
+            line->accessTime = clock();
+            return 0;
+        } else {
+            if (line->accessTime < set->lines[min_index].accessTime) {
+                min_index = i;
+            }
+        }
+    }
+    
+    line_t *evict_line = &(set->lines[min_index]);
+    evict_line->valid = 1;
+    evict_line->tag = tag;
+    evict_line->accessTime = clock();
+    return 1;
+}
+
+static int checkHit(const set_t *set, const unsigned long tag) {
+    int i;
+    for (i = 0; i < linesNum; i++) {
+        line_t *line = &(set->lines[i]);
+        if (line->valid && line->tag == tag) {
+            line->accessTime = clock();
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+
+static void handleStore(const unsigned long *addr) {
+    /* printf("%ld\n ", *addr); */
+    handleLoad(addr);
 }
 
 /**
  * initCache - init the cache.
  */
 static void initCache() {
-    printf("setsNum: %d, linesNum: %d, blockSize: %d\n", 
-            setsNum, linesNum, blockSize);
     cache = (cache_t *) malloc(sizeof(cache_t));
     if (!cache) {
         printf("No enough memory!\n");
@@ -78,8 +208,8 @@ static void initCache() {
 
         int j;
         for (j = 0; j < linesNum; j++) {
-            line_t line = lines[j];
-            line.vaild = 0;
+            lines[j].valid = 0;
+            lines[j].accessTime = 0;
         }
 
         cache->sets[i].lines = lines;
@@ -100,9 +230,9 @@ static void freeCache() {
 
     int i;
     for (i = 0; i < setsNum; i++) {
-        set_t set = cache->sets[i];
-        if (set.lines) {
-            free(set.lines);
+        set_t *set = &(cache->sets[i]);
+        if (set->lines) {
+            free(set->lines);
         }
     }
     free(cache->sets);
@@ -127,15 +257,16 @@ static void checkArgsSetInitArg(int argc, char *argv[]) {
                 verbose = 1;
                 break;
             case 's':
-                setsNum = atoi(optarg);
+                setsNum = 1 << atoi(optarg);
                 break;
             case 'E':
                 linesNum = atoi(optarg);
                 break;
             case 'b':
-                blockSize = atoi(optarg);
+                blockSize = 1 << atoi(optarg);
                 break;
             case 't':
+                fileName = optarg;
                 break;
             default:
                 /* invalid args */
@@ -147,7 +278,7 @@ static void checkArgsSetInitArg(int argc, char *argv[]) {
     /* if the compulsory args are not set, or set to 0, 
      * print the usage and exit. 
      */
-    if (setsNum <= 0 || linesNum <= 0 || blockSize <= 0) {
+    if (setsNum <= 0 || linesNum <= 0 || blockSize <= 0 || !fileName) {
         printf("%s: Missing required command line argument\n", argv[0]);
         printUsage(argv);
         exit(EXIT_FAILURE);
