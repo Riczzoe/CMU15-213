@@ -22,12 +22,30 @@ int is_transpose(int M, int N, int A[N][M], int B[M][N]);
 char transpose_submit_desc[] = "Transpose submission";
 void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {
+    if (M == 32) {
+        transpose_32(M, N, A, B);
+    }
 }
 
 /* 
  * You can define additional transpose functions below. We've defined
  * a simple one below to help you get started. 
  */ 
+char transpose_32_desc[] = "Transpose 32x32";
+void transpose_32(int M, int N, int A[N][M], int B[M][N]) {
+    int blockSize = 8;
+    int en = blockSize * (M / blockSize);
+    int i, j, ii, jj;
+    for (i = 0; i < en; i += blockSize) {
+        for (j = 0; j < en; j+= blockSize) {
+            for (ii = i; ii < i + blockSize; ii++) {
+                for (jj = j; jj < j + blockSize; jj++) {
+                    B[jj][ii] = A[ii][jj];
+                }
+            }
+        }
+    }
+}
 
 /* 
  * trans - A simple baseline transpose function, not optimized for the cache.
