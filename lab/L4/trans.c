@@ -24,6 +24,10 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {
     if (M == 32) {
         transpose_32(M, N, A, B);
+    } else if (M == 64) {
+        transpose_64(M, N, A, B);
+    } else {
+        transpose_61(M, N, A, B);
     }
 }
 
@@ -35,16 +39,41 @@ char transpose_32_desc[] = "Transpose 32x32";
 void transpose_32(int M, int N, int A[N][M], int B[M][N]) {
     int blockSize = 8;
     int en = blockSize * (M / blockSize);
-    int i, j, ii, jj;
+    int i, j, ii, jj, tmp, index;
     for (i = 0; i < en; i += blockSize) {
         for (j = 0; j < en; j+= blockSize) {
             for (ii = i; ii < i + blockSize; ii++) {
                 for (jj = j; jj < j + blockSize; jj++) {
-                    B[jj][ii] = A[ii][jj];
+                    /* if ii == jj, then the element of A[ii][jj] and b[jj][ii]
+                     * are in the same cache block .
+                     *
+                     * And the improtant thing is that this happens only 
+                     * blockSize times in a digonal block. so we can just store 
+                     * the element of A[ii][jj], and does not immediately assign
+                     * it to B[jj][ii].
+                     */
+                    if (ii != jj) {
+                        B[jj][ii] = A[ii][jj];
+                    } else {
+                        tmp = A[ii][jj];
+                        index = ii;
+                    }
+                }
+                /* digonal conflict miss only happens when i = j */
+                if (i == j) {
+                    B[index][index] = tmp;
                 }
             }
         }
     }
+}
+
+void transpose_64(int M, int N, int A[N][M], int B[M][N]) {
+
+}
+
+void transpose_61(int M, int N, int A[N][M], int B[M][N]) {
+
 }
 
 /* 
