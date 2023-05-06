@@ -211,6 +211,8 @@ void eval(char *cmdline)
         /* Parent waits for foreground job to terminate */
         if (!bg) {
             waitfg(pid);
+        } else {
+            printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
         }
     }
 
@@ -344,6 +346,23 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    pid_t pid;          /* foreground job's pid */
+    job_t *fj;          /* foreground job */
+    sigset_t mask_one, prev;
+
+    Sigemptyset(&mask_one);
+    Sigaddset(&mask_one, SIGINT);
+    Sigprocmask(SIG_BLOCK, &mask_one, &prev);   /* Block SIGINT */
+
+    /* If there is no foreground job, ignore the SIGSTP signal */
+    if (!(pid = fgpid(jobs)))
+        return;
+
+    fj = getjobpid(jobs, pid);
+    fj.state = ST;
+    /* Send SIGINT to the group of foreground job */
+    Kill(-pid, SIGINT);
+    Sigprocmask(SIG_SETMASK, &prev, NULL);      /* Unblock SIGINT */
     return;
 }
 
@@ -354,6 +373,23 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    pid_t pid;          /* foreground job's pid */
+    job_t *fj;          /* foreground job */
+    sigset_t mask_one, prev;
+
+    Sigemptyset(&mask_one);
+    Sigaddset(&mask_one, SIGSTOP);
+    Sigprocmask(SIG_BLOCK, &mask_one, &prev);
+
+    /* If there is no foreground job, ignore the SIGSTP signal */
+    if (!(pid = fgpid(jobs)))
+        return;
+
+    fj = getjobpid(jobs, pid);
+    fj.state = BG;
+    /* Send SIGSTOP to the group of foreground job */
+    Kill(-pid, SIGSTOP);
+    Sigprocmask(SIG_SETMASK, &prev, NULL);
     return;
 }
 
