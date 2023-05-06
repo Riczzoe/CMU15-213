@@ -312,7 +312,57 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
-    printf("do_bgfg\n");
+    struct job_t *job;      /* The job */
+    int id;                 /* The job id or pid */
+    int i;
+    int state;              /* The state of the jobi(BG or FG) */
+    char *prompt;           /* When no such job, print the prompt */
+    int start_index;        /* The start index of second argument */
+    /* struct job_t *getjobjid(struct job_t *jobs, int jid)  */
+    /* The function to get the job */
+    struct job_t * (*getjob) (struct job_t *, int); 
+
+    /* Check if the second argument is empty */
+    if (!argv[1]) 
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
+
+    /* If the second argument start with '%', then it is a job id, 
+     * so the id(number) start at index 1, and if input no a number,
+     * it should print "xxx: No such job", and get the job with getjobjid.
+     *
+     * If the second argument start with a number, then it is a pid,
+     * so the id(number) start at index 0, and if input no a number,
+     * it should print "xxx: No such process", and get the job with getjobpid.
+     */
+    start_index = (argv[1][0] == '%');
+    prompt = start_index ? "job" : "process";
+    getjob = start_index ? getjobjid : getjobpid;
+    
+
+    /* Check if the second argument is a number */
+    for (i = start_index; argv[1][i]; i++)
+        if (!isdigit(argv[1][i])) {
+            printf("%s, argument must be a PID or %%jobid\n", argv[0]);
+            return;
+        }
+    id = atoi(&argv[1][start_index]);
+    if (!(job = getjob(jobs, id))) {  /* If no such job, print the prompt */
+        printf("%s: No such %s\n", argv[1], prompt);
+        return;
+    }
+
+    /* Send the SIGCONT signal to the job */
+    Kill(-(job->pid), SIGCONT);
+    job->state = state = !strcmp(argv[0], "bg") ? BG : FG;
+
+    /* If command is bg, print the job info and return,
+     * else wait for the job to terminate */
+    if (state == BG) {
+        printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+    } else {
+        waitfg(job->pid);
+    }
+
     return;
 }
 
@@ -321,10 +371,12 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    /* sigsuspend need a mask, so create an empty mask */
     sigset_t empty_mask;
     Sigemptyset(&empty_mask);
-    while (pid == fgpid(jobs))
-        sigsuspend(&empty_mask);
+
+    while (pid == fgpid(jobs))      /* Busy waiting */
+        sigsuspend(&empty_mask); 
     return;
 }
 
@@ -342,24 +394,32 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
     int olderrno = errno;
+    errno = SIGCHLD;
     int status;
     int drc;
     pid_t pid;
     sigset_t mask_all, prev;
-
     Sigfillset(&mask_all);
 
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        Sigprocmask(SIG_BLOCK, &mask_all, &prev);
         if (WIFEXITED(status)) {
-            Sigprocmask(SIG_BLOCK, &mask_all, &prev);
             if (!(drc = deletejob(jobs, pid))) 
                 unix_error("Deletejob error");
-            Sigprocmask(SIG_SETMASK, &prev, NULL);
+        } else if (WIFSIGNALED(status)) {
+            if (!(drc = deletejob(jobs, pid))) 
+                unix_error("Deletejob error");
+            printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(status));
+        } else if (WIFSTOPPED(status)) {
+            getjobpid(jobs, pid)->state = ST;
+            printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, WSTOPSIG(status));
         }
+        Sigprocmask(SIG_SETMASK, &prev, NULL);
     }
 
-    /* if (errno != ECHILD) */
-    /*     unix_error("Fuck handler! waitpid error"); */
+
+    if (errno != ECHILD)
+        unix_error("Fuck handler! waitpid error");
 
     errno = olderrno;
     return;
