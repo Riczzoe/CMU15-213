@@ -67,6 +67,7 @@ void sigint_handler(int sig);
 /* Wrapper function */
 pid_t Fork(void);
 /* void Execve(char *filename, char *const argv[], char *const envp[]); */
+void Kill(pid_t pid, int sig);
 void Setpgid(pid_t pid, pid_t pgid);
 void Sigprocmask(int how, sigset_t *set, sigset_t *oldset);
 void Sigfillset(sigset_t *set);
@@ -320,6 +321,10 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    sigset_t empty_mask;
+    Sigemptyset(&empty_mask);
+    while (pid == fgpid(jobs))
+        sigsuspend(&empty_mask);
     return;
 }
 
@@ -336,6 +341,27 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    int olderrno = errno;
+    int status;
+    int drc;
+    pid_t pid;
+    sigset_t mask_all, prev;
+
+    Sigfillset(&mask_all);
+
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        if (WIFEXITED(status)) {
+            Sigprocmask(SIG_BLOCK, &mask_all, &prev);
+            if (!(drc = deletejob(jobs, pid))) 
+                unix_error("Deletejob error");
+            Sigprocmask(SIG_SETMASK, &prev, NULL);
+        }
+    }
+
+    /* if (errno != ECHILD) */
+    /*     unix_error("Fuck handler! waitpid error"); */
+
+    errno = olderrno;
     return;
 }
 
@@ -346,8 +372,9 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    int olderrno = errno;
     pid_t pid;          /* foreground job's pid */
-    job_t *fj;          /* foreground job */
+    struct job_t *fj;          /* foreground job */
     sigset_t mask_one, prev;
 
     Sigemptyset(&mask_one);
@@ -359,10 +386,12 @@ void sigint_handler(int sig)
         return;
 
     fj = getjobpid(jobs, pid);
-    fj.state = ST;
+    fj->state = ST;
     /* Send SIGINT to the group of foreground job */
     Kill(-pid, SIGINT);
     Sigprocmask(SIG_SETMASK, &prev, NULL);      /* Unblock SIGINT */
+
+    errno = olderrno;
     return;
 }
 
@@ -373,8 +402,9 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    int olderrno = errno;
     pid_t pid;          /* foreground job's pid */
-    job_t *fj;          /* foreground job */
+    struct job_t *fj;          /* foreground job */
     sigset_t mask_one, prev;
 
     Sigemptyset(&mask_one);
@@ -386,10 +416,12 @@ void sigtstp_handler(int sig)
         return;
 
     fj = getjobpid(jobs, pid);
-    fj.state = BG;
+    fj->state = BG;
     /* Send SIGSTOP to the group of foreground job */
     Kill(-pid, SIGSTOP);
     Sigprocmask(SIG_SETMASK, &prev, NULL);
+
+    errno = olderrno;
     return;
 }
 
@@ -559,6 +591,14 @@ pid_t Fork(void) {
     if ((rc = fork()) < 0)
         unix_error("Fork error");
     return rc;
+}
+
+
+void Kill(pid_t pid, int sig) {
+    int rc;
+
+    if ((rc = kill(pid, sig)) < 0)
+        unix_error("Kill error");
 }
 
 void Setpgid(pid_t pid, pid_t pgid){
