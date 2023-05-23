@@ -33,6 +33,14 @@ void app_error(char *msg) {
  * | Wrappers for Unix process control functions |
  * ----------------------------------------------
  */
+pid_t Wait(int *status) {
+    pid_t pid;
+
+    if ((pid = wait(status)) < 0)
+        unix_error("Wait error");
+    return pid;
+}
+
 void Execve(char *filename, char *const argv[], char *const envp[]) {
     if (execve(filename, argv, envp) < 0) 
         unix_error("Execve error");

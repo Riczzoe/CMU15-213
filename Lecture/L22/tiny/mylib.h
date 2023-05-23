@@ -27,6 +27,11 @@
 #define     DEF_MODE    S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH
 #define     DEF_UMASK   S_IWGRP|S_IWOTH
 
+/* Simplifies calls to bind(), connect(), and accept() */
+/* $begin sockaddrdef */
+typedef struct sockaddr SA;
+/* $end sockaddrdef */
+
 /* Persistent state for the robust I/O (RIO) package    */
 /* $begin rio_t */
 #define     RIO_BUFSIZE 8192
@@ -54,6 +59,7 @@ void app_error(char *msg);
 
 
 /* Process control wrappers */
+pid_t Wait(int *status);
 void Execve(char *filename, char *const argv[], char *const envp[]);
 pid_t Fork(void);
 unsigned int snooze(unsigned int secs);
